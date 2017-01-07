@@ -32,6 +32,8 @@ import webapp2
 import json
 import base64
 
+import copy
+
 # [END imports]
 
 class Stream(ndb.Model):
@@ -61,9 +63,18 @@ class Frame(ndb.Model):
     created_at = ndb.DateTimeProperty(auto_now_add=True)
     updated_at = ndb.DateTimeProperty(auto_now=True)
 
+
     @classmethod
     def query_by_owner(cls, user_id):
         return cls.query(cls.created_by_user_id == user_id).order(-cls.updated_at)
+
+class FrameStream(ndb.Model):
+    """Model a relationship between frame and a stream"""
+    created_by_user_id = ndb.StringProperty(indexed=True)
+    created_at = ndb.DateTimeProperty(auto_now_add=True)
+    updated_at = ndb.DateTimeProperty(auto_now=True)
+    frame = ndb.KeyProperty(kind=Frame)
+    stream = ndb.KeyProperty(kind=Stream)
 
 
 def default_json_serializer(obj):
@@ -260,6 +271,19 @@ class FramesApi(webapp2.RequestHandler):
 
         self.response.out.write("ok")
 
+# I'll use this method to serialize objects instead of the complex json.dumps.
+# this seem to be more compsable, still not the best.
+def clone_for_json(obj):
+    import calendar, datetime
+    clone = obj.to_dict()
+    for attr, val in clone.items():
+        if (isinstance(val, datetime.datetime)):
+            clone[attr] = int(
+                calendar.timegm(val.timetuple()) * 1000 +
+                val.microsecond / 1000
+            )
+    return clone
+
 class FrameApi(webapp2.RequestHandler):
 
     def get(self, id):
@@ -270,9 +294,17 @@ class FrameApi(webapp2.RequestHandler):
             self.response.status = 404
             self.response.write('frame not found')
         else:
+            frame_streams_query = FrameStream.query(ancestor=key)
+            frame_streams = frame_streams_query.fetch(100)
+            streams = [fs.stream.get() for fs in frame_streams]
+
+            frame_with_streams = {
+                'frame': clone_for_json(frame),
+                'streams': ([clone_for_json(s) for s in streams])
+            }
+
             self.response.headers['Content-Type'] = 'application/json'
-            self.response.out.write(json.dumps(dict(frame.to_dict(), **dict(id=frame.key.id())), default=default_json_serializer))
-            # self.response.out.write(json.dumps(dict(stream.to_dict(), **dict(id=stream.key.id())), default=default_json_serializer))
+            self.response.out.write(json.dumps(frame_with_streams))
 
 
 # [START app]
