@@ -62,20 +62,17 @@ class Frame(ndb.Model):
     created_by_user_id = ndb.StringProperty(indexed=True)
     created_at = ndb.DateTimeProperty(auto_now_add=True)
     updated_at = ndb.DateTimeProperty(auto_now=True)
-
+    streams = ndb.KeyProperty(kind=Stream, repeated=True)
 
     @classmethod
     def query_by_owner(cls, user_id):
         return cls.query(cls.created_by_user_id == user_id).order(-cls.updated_at)
 
-class FrameStream(ndb.Model):
-    """Model a relationship between frame and a stream"""
-    created_by_user_id = ndb.StringProperty(indexed=True)
-    created_at = ndb.DateTimeProperty(auto_now_add=True)
-    updated_at = ndb.DateTimeProperty(auto_now=True)
-    frame = ndb.KeyProperty(kind=Frame)
-    stream = ndb.KeyProperty(kind=Stream)
-
+    def serialize(self):
+        return {
+            'id': self.key.id(),
+            'name': self.name
+        }
 
 def default_json_serializer(obj):
     """Default JSON serializer."""
@@ -262,7 +259,7 @@ class FramesApi(webapp2.RequestHandler):
         owner_frames = Frame.query_by_owner(users.get_current_user().user_id()).fetch()
 
         self.response.headers['Content-Type'] = 'application/json'
-        self.response.out.write(json.dumps([dict(g.to_dict(), **dict(id=g.key.id())) for g in owner_frames], default=default_json_serializer))
+        self.response.out.write(json.dumps([g.serialize() for g in owner_frames], default=default_json_serializer))
 
     def post(self):
         name = self.request.get('name')
@@ -277,11 +274,17 @@ def clone_for_json(obj):
     import calendar, datetime
     clone = obj.to_dict()
     for attr, val in clone.items():
+        # logging.info("attr {0} type:{1}".format(attr, type(val)))
         if (isinstance(val, datetime.datetime)):
             clone[attr] = int(
                 calendar.timegm(val.timetuple()) * 1000 +
                 val.microsecond / 1000
             )
+        elif (isinstance(val, ndb.Key)):
+            clone[attr] = val.id()
+
+    # Add the entity numeric id.
+    clone['id'] = obj.key.id()
     return clone
 
 class FrameApi(webapp2.RequestHandler):
@@ -294,18 +297,47 @@ class FrameApi(webapp2.RequestHandler):
             self.response.status = 404
             self.response.write('frame not found')
         else:
-            frame_streams_query = FrameStream.query(ancestor=key)
-            frame_streams = frame_streams_query.fetch(100)
-            streams = [fs.stream.get() for fs in frame_streams]
+            streams = [stream.get() for stream in frame.streams]
 
             frame_with_streams = {
-                'frame': clone_for_json(frame),
+                'frame': frame.serialize(),
                 'streams': ([clone_for_json(s) for s in streams])
             }
 
             self.response.headers['Content-Type'] = 'application/json'
             self.response.out.write(json.dumps(frame_with_streams))
 
+class FrameStreamsApi(webapp2.RequestHandler):
+
+    def post(self, frame_id):
+        stream_id = self.request.get('stream_id')
+
+        frame_key = ndb.Key('Frame', int(frame_id))
+        stream_key = ndb.Key('Stream', int(stream_id))
+
+        frame = frame_key.get()
+        if stream_key in frame.streams:
+            self.response.status = 403 # forbidden
+            self.response.write('stream is alreay linked to this frame')
+        else:
+            frame.streams.append(stream_key)
+            frame.put()
+            self.response.out.write("ok")
+
+
+class FrameStreamApi(webapp2.RequestHandler):
+    def delete(self, frame_id, stream_id):
+        frame_key = ndb.Key('Frame', int(frame_id))
+        stream_key = ndb.Key('Stream', int(stream_id))
+
+        frame = frame_key.get()
+        if not stream_key in frame.streams:
+            self.response.status = 403 # forbidden
+            self.response.write('stream is not linked to this frame')
+        else:
+            frame.streams.remove(stream_key)
+            frame.put()
+            self.response.out.write("ok")
 
 # [START app]
 app = webapp2.WSGIApplication([
@@ -316,6 +348,8 @@ app = webapp2.WSGIApplication([
     webapp2.Route(r'/api/me', MeApi),
     webapp2.Route(r'/api/frames', FramesApi),
     webapp2.Route(r'/api/frames/<id>', FrameApi),
+    webapp2.Route(r'/api/frames/<frame_id>/streams', FrameStreamsApi),
+    webapp2.Route(r'/api/frames/<frame_id>/streams/<stream_id>', FrameStreamApi),
     webapp2.Route(r'/api/test', TestApi),
     webapp2.Route(r'/api/test/write', TestWriteApi),
     webapp2.Route(r'/api/test/read', TestReadApi),
