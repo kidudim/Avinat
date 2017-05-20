@@ -6,7 +6,7 @@ import Html.Attributes exposing (..)
 import Html.Events exposing (..)
 import Http
 import Json.Decode as Decode
-
+import RemoteData exposing (WebData)
 
 
 main : Program Never Model Msg
@@ -43,6 +43,7 @@ init topic =
 type Msg
   = MorePlease
   | NewGif (Result Http.Error String)
+  | OnFetchFrame (WebData (List FrameStream))
 
 
 update : Msg -> Model -> (Model, Cmd Msg)
