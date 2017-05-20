@@ -4,10 +4,11 @@
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (..)
-import Http
-import Json.Decode as Decode
 import RemoteData exposing (WebData)
 
+import Msgs exposing (..)
+import Commands exposing (getFrameStreams)
+import Models exposing (FrameStream, FramePhoto, GetFrameResponse)
 
 main : Program Never Model Msg
 main =
@@ -22,17 +23,17 @@ main =
 
 -- MODEL
 
-
 type alias Model =
   { topic : String
   , gifUrl : String
+  , streams : WebData GetFrameResponse
   }
 
 
 init : String -> (Model, Cmd Msg)
 init topic =
-  ( Model topic "waiting.gif"
-  , getRandomGif topic
+  ( Model topic "waiting.gif" RemoteData.NotAsked
+  , getFrameStreams topic
   )
 
 
@@ -40,24 +41,23 @@ init topic =
 -- UPDATE
 
 
-type Msg
-  = MorePlease
-  | NewGif (Result Http.Error String)
-  | OnFetchFrame (WebData (List FrameStream))
-
-
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
   case msg of
     MorePlease ->
-      (model, getRandomGif model.topic)
+      (model, getFrameStreams model.topic)
 
-    NewGif (Ok newUrl) ->
-      (Model model.topic newUrl, Cmd.none)
+    -- NewGif (Ok newUrl) ->
+    --   (Model model.topic newUrl, Cmd.none)
+    --
+    -- NewGif (Err _) ->
+    --   (model, Cmd.none)
 
-    NewGif (Err _) ->
-      (model, Cmd.none)
-
+    OnFetchFrame response ->
+      let
+        _ = Debug.log "testing 123"
+      in
+        ( { model | streams = response } , Cmd.none)
 
 
 -- VIEW
@@ -70,9 +70,25 @@ view model =
     , button [ onClick MorePlease ] [ text "More Please!" ]
     , br [] []
     , img [src model.gifUrl] []
+    , maybeResponse model.streams
     ]
 
 
+maybeResponse : WebData GetFrameResponse -> Html Msg
+maybeResponse response =
+    case response of
+        RemoteData.NotAsked ->
+            text ""
+
+        RemoteData.Loading ->
+            text "Loading..."
+
+        RemoteData.Success players ->
+            --list players
+            text (toString response)
+
+        RemoteData.Failure error ->
+            text (toString error)
 
 -- SUBSCRIPTIONS
 
@@ -80,23 +96,3 @@ view model =
 subscriptions : Model -> Sub Msg
 subscriptions model =
   Sub.none
-
-
-
--- HTTP
-
-
-getRandomGif : String -> Cmd Msg
-getRandomGif topic =
-  let
-    frameId = "4974396762488832"
-    accessKey = "m7lzHcgdB9BVZyKg4PuDFkStP8QVfvzSDIfZpEfb"
-    url =
-      "/public/api/frames/" ++ frameId ++ "?access_key=" ++ accessKey
-  in
-    Http.send NewGif (Http.get url decodeGifUrl)
-
-
-decodeGifUrl : Decode.Decoder String
-decodeGifUrl =
-  Decode.at ["data", "image_url"] Decode.string
