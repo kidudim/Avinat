@@ -1,9 +1,9 @@
 module Commands exposing (..)
 
 import Http
-import Json.Decode as Decode exposing (int)
+import Json.Decode as Decode
 import Json.Decode.Pipeline exposing (decode, required)
-import Models exposing (FrameStream)
+import Models exposing (FrameStream, FramePhoto)
 import RemoteData
 
 import Msgs exposing (Msg)
@@ -11,16 +11,9 @@ import Models exposing (GetFrameResponse, FrameStream)
 
 getFrameStreams : String -> Cmd Msg
 getFrameStreams topic =
-  let
-    frameId = "4974396762488832"
-    accessKey = "m7lzHcgdB9BVZyKg4PuDFkStP8QVfvzSDIfZpEfb"
-    url =
-      "/public/api/frames/" ++ frameId ++ "?access_key=" ++ accessKey
-  in
-    --Http.send NewGif (Http.get url decodeGifUrl)
-    Http.get fetchFrameUrl frameResponseDecoder
-        |> RemoteData.sendRequest
-        |> Cmd.map Msgs.OnFetchFrame
+  Http.get fetchFrameUrl frameResponseDecoder
+      |> RemoteData.sendRequest
+      |> Cmd.map Msgs.OnFetchFrame
 
 
 fetchFrameUrl : String
@@ -47,5 +40,17 @@ frameStreamsDecoder =
 sreamDecoder : Decode.Decoder FrameStream
 sreamDecoder =
   decode FrameStream
-      |> required "id" int
+      |> required "id" Decode.int
       |> required "name" Decode.string
+      |> required "photos" photosDecoder
+
+
+photosDecoder : Decode.Decoder (List FramePhoto)
+photosDecoder =
+  Decode.list photoDecoder
+
+
+photoDecoder : Decode.Decoder FramePhoto
+photoDecoder =
+  decode FramePhoto
+    |> required "id" Decode.int
